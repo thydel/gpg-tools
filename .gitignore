@@ -10,3 +10,4 @@ ansible.cfg
 ssh-config
 vault-pass.py
 inventory/local
+private-repos.yml
