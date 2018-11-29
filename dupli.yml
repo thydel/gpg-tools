@@ -104,7 +104,8 @@
   vars:
     <<: *common
     workdir: ext
-    password_store_dir: '{{ playbook_dir }}/{{ workdir }}/infra-password-store' # passwordstore lookup needs full path
+    password_store_git: '{{ workdir }}/infra-password-store'
+    password_store_dir: '{{ playbook_dir }}/{{ workdir }}/infra-password-store/password-store' # passwordstore lookup needs full path
     gnupg_home_dir: '{{ workdir }}/infra-gpg-store'
     subdir: '{{ set|default("duplicity") }}'
 
@@ -131,7 +132,7 @@
 
     - git:
         repo: '{{ password_store_repo }}'
-        dest: '{{ password_store_dir }}'
+        dest: '{{ password_store_git }}'
         key_file: '{{ git_ssh_key_file }}'
       <<: *lo
       tags: clone
@@ -161,6 +162,7 @@
         macros:
           - &pass
             environment:
+              PASSWORD_STORE_GIT: '{{ password_store_git }}'
               PASSWORD_STORE_DIR: '{{ password_store_dir }}'
               GIT_SSH_COMMAND: 'ssh -i {{ git_ssh_key_file }}'
             delegate_to: localhost
