@@ -148,6 +148,7 @@
 
     - set_fact: { email: '{{ subdir }}@{{ inventory_hostname }}' }
       name: Define email
+      tags: always
 
     - set_fact: { password: '{{ subdir }}/{{ email }} create=true directory={{ password_store_dir }}' }
       name: Define passwordstore invocation
@@ -271,5 +272,28 @@
       delegate_to: localhost
       when: head_upstream.results[0].stdout != head_upstream.results[1].stdout
       name: Push new keys
+
+    - command:
+      args:
+        argv:
+          - gpg
+          - --homedir
+          - '{{ gnupg_home_dir }}/{{ subdir }}'
+          - --armor
+          - --export
+          - --output
+          - &key_asc tmp/{{ email }}.asc
+          - '{{ email }}'
+        creates: *key_asc
+      delegate_to: localhost
+      name: Export pub key
+      tags: export
+
+    - copy:
+        src: *key_asc
+        dest: /etc/dupicity
+      become: True
+      name: Copy pub key
+      tags: export
 
     - meta: end_play

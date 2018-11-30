@@ -11,3 +11,6 @@ ssh-config
 vault-pass.py
 inventory/local
 private-repos.yml
+
+inventory/nodes.yml
+inventory/.stone
