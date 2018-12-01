@@ -11,7 +11,7 @@ std.mapWithKey(
 	[]),
     o);
 
-// { a: [ 1, 2], b: [ 3, 4]} => [ 1, 2, 3, 4 ]
+// { a: [ 1, 2 ], b: [ 3, 4 ] } => [ 1, 2, 3, 4 ]
 local merge(o) = std.foldl(function(l, k) l + o[k], std.objectFields(o), []);
 
 local hosts = merge(dist(nodes));
