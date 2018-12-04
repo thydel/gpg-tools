@@ -12,6 +12,6 @@ vault-pass.py
 inventory/local
 private-repos.yml
 
-inventory/nodes.yml
+inventory/*_out.yml
 inventory/.stone
 try.jsonnet

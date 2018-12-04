@@ -106,8 +106,10 @@
     workdir: ext
     password_store_git: '{{ workdir }}/infra-password-store'
     password_store_dir: '{{ playbook_dir }}/{{ workdir }}/infra-password-store/password-store' # passwordstore lookup needs full path
-    gnupg_home_dir: '{{ workdir }}/infra-gpg-store'
-    subdir: '{{ set|default("duplicity") }}'
+    gnupg_repo: '{{ workdir }}/infra-gpg-store'
+    gnupg_user: '{{ user | default("duplicity") }}'
+    gnupg_homedir: '{{ gnupg_repo }}/{{ gnupg_user }}/.gnupg'
+    gnupg_keysdir: '{{ gnupg_repo }}/{{ gnupg_user }}/keys'
 
   vars_files: [ '{{ private_repos_file }}' ]
 
@@ -140,17 +142,17 @@
 
     - git:
         repo: '{{ gpg_store_repo }}'
-        dest: '{{ gnupg_home_dir }}'
+        dest: '{{ gnupg_repo }}'
         key_file: '{{ git_ssh_key_file }}'
       <<: *lo
       tags: clone
       name: Get gpg store repo
 
-    - set_fact: { email: '{{ subdir }}@{{ inventory_hostname }}' }
+    - set_fact: { email: '{{ gnupg_user }}@{{ inventory_hostname }}' }
       name: Define email
       tags: always
 
-    - set_fact: { password: '{{ subdir }}/{{ email }} create=true directory={{ password_store_dir }}' }
+    - set_fact: { password: '{{ gnupg_user }}/{{ email }} create=true directory={{ password_store_dir }}' }
       name: Define passwordstore invocation
 
     - set_fact:
@@ -186,11 +188,12 @@
       name: Push new password
 
     - file:
-        path: '{{ gnupg_home_dir }}/{{ subdir }}'
+        path: '{{ item }}'
         state: directory
         mode: 0700
+      loop: [ '{{ gnupg_homedir }}', '{{ gnupg_keysdir }}' ]
       <<: *lo
-      name: Create GPG dir
+      name: Create GPG dirs
 
     - &check
       command:
@@ -198,7 +201,7 @@
         argv:
           - gpg
           - --homedir
-          - '{{ gnupg_home_dir }}/{{ subdir }}'
+          - '{{ gnupg_homedir }}'
           - --list-secret-keys
           - '{{ email }}'
       delegate_to: localhost
@@ -211,7 +214,7 @@
         content: |
           Key-Type: default
           Subkey-Type: default
-          Name-Real: {{ subdir }}
+          Name-Real: {{ gnupg_user }}
           Name-Comment: for {{ inventory_hostname }}
           Name-Email: {{ email }}
           Expire-Date: 0
@@ -229,7 +232,7 @@
         argv:
           - gpg
           - --homedir
-          - '{{ gnupg_home_dir }}/{{ subdir }}'
+          - '{{ gnupg_homedir }}'
           - --batch
           - --generate-key
           - *script
@@ -246,12 +249,12 @@
       name: Delete gpg script
 
     - <<: *ro
-      command: git -C {{ gnupg_home_dir }} status --porcelain
+      command: git -C {{ gnupg_repo }} status --porcelain
       delegate_to: localhost
       register: status
       name: Get status
 
-    - command: git -C {{ gnupg_home_dir }} {{ item }}
+    - command: git -C {{ gnupg_repo }} {{ item }}
       delegate_to: localhost
       when: status.stdout_lines|length|int
       with_items:
@@ -260,25 +263,27 @@
       name: Add GPG keys
 
     - <<: *ro
-      command: git -C {{ gnupg_home_dir }} rev-parse {{ item }}
+      command: git -C {{ gnupg_repo }} rev-parse {{ item }}
       delegate_to: localhost
       register: head_upstream
       with_items: [ '@', '@{u}' ]
       name: Get head and upstream
 
-    - command: git -C {{ gnupg_home_dir }} push
+    - command: git -C {{ gnupg_repo }} push
       environment:
         GIT_SSH_COMMAND: 'ssh -i {{ git_ssh_key_file }}'
       delegate_to: localhost
       when: head_upstream.results[0].stdout != head_upstream.results[1].stdout
       name: Push new keys
 
+    - meta: end_play
+
     - command:
       args:
         argv:
           - gpg
           - --homedir
-          - '{{ gnupg_home_dir }}/{{ subdir }}'
+          - '{{ gnupg_homedir }}'
           - --armor
           - --export
           - --output
@@ -291,9 +296,8 @@
 
     - copy:
         src: *key_asc
-        dest: /etc/dupicity
+        dest: /etc/duplicity
       become: True
       name: Copy pub key
       tags: export
 
-    - meta: end_play
