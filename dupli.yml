@@ -78,7 +78,7 @@
         name: Get user email from git config
       - <<: *ro
         name: Get keygrip of GPG key using email ID
-        command: gpg --fingerprint --with-keygrip '<{{ git_config.config_value }}>'
+        command: gpg2 --fingerprint --with-keygrip '<{{ git_config.config_value }}>'
         register: gpg_keygrip
       - assert:
           that: gpg_keygrip.rc == 0
@@ -134,7 +134,7 @@
 
     - git:
         repo: '{{ password_store_repo }}'
-        dest: '{{ password_store_git }}'
+        dest: &password_store '{{ password_store_git }}'
         key_file: '{{ git_ssh_key_file }}'
       <<: *lo
       tags: clone
@@ -142,11 +142,20 @@
 
     - git:
         repo: '{{ gpg_store_repo }}'
-        dest: '{{ gnupg_repo }}'
+        dest: &gpg_store '{{ gnupg_repo }}'
         key_file: '{{ git_ssh_key_file }}'
       <<: *lo
       tags: clone
       name: Get gpg store repo
+
+    - git_config:
+        repo: '{{ item }}'
+        name: core.sshCommand
+        scope: local
+        value: ssh -i {{ git_ssh_key_file }} -F /dev/null
+      <<: *lo
+      loop: [ *password_store, *gpg_store ]
+      name: Configure core.sshCommand
 
     - set_fact: { email: '{{ gnupg_user }}@{{ inventory_hostname }}' }
       name: Define email
@@ -199,16 +208,16 @@
       command:
       args:
         argv:
-          - gpg
+          - gpg2
           - --homedir
           - '{{ gnupg_homedir }}'
           - --list-secret-keys
-          - '{{ email }}'
+          - '<{{ email }}>'
       delegate_to: localhost
       register: gpg
       failed_when: gpg.rc > 2
       <<: *ro
-      name: Check GPG keys
+      name: Check GPG key
 
     - copy:
         content: |
@@ -230,7 +239,7 @@
     - command:
       args:
         argv:
-          - gpg
+          - gpg2
           - --homedir
           - '{{ gnupg_homedir }}'
           - --batch
@@ -238,7 +247,7 @@
           - *script
       delegate_to: localhost
       when: gpg.rc == 2
-      name: Generate GPG keys
+      name: Generate GPG key
 
     - *check # listing new keys changes trustdb
 
@@ -247,6 +256,22 @@
         state: absent
       delegate_to: localhost
       name: Delete gpg script
+
+    - command:
+      args:
+        argv:
+          - gpg2
+          - --homedir
+          - '{{ gnupg_homedir }}'
+          - --armor
+          - --export
+          - --output
+          - &src_key_asc '{{ gnupg_keysdir }}/{{ email }}.asc'
+          - '{{ email }}'
+        creates: *src_key_asc
+      delegate_to: localhost
+      name: Export pub key
+      tags: export
 
     - <<: *ro
       command: git -C {{ gnupg_repo }} status --porcelain
@@ -259,8 +284,8 @@
       when: status.stdout_lines|length|int
       with_items:
         - add .
-        - commit -m 'Adds {{ email }}'
-      name: Add GPG keys
+        - commit -m 'Adds {{ email }} via ansible'
+      name: Add GPG key
 
     - <<: *ro
       command: git -C {{ gnupg_repo }} rev-parse {{ item }}
@@ -274,30 +299,38 @@
         GIT_SSH_COMMAND: 'ssh -i {{ git_ssh_key_file }}'
       delegate_to: localhost
       when: head_upstream.results[0].stdout != head_upstream.results[1].stdout
-      name: Push new keys
-
-    - meta: end_play
-
-    - command:
-      args:
-        argv:
-          - gpg
-          - --homedir
-          - '{{ gnupg_homedir }}'
-          - --armor
-          - --export
-          - --output
-          - &key_asc tmp/{{ email }}.asc
-          - '{{ email }}'
-        creates: *key_asc
-      delegate_to: localhost
-      name: Export pub key
-      tags: export
+      name: Push new key
 
     - copy:
-        src: *key_asc
-        dest: /etc/duplicity
+        src: *src_key_asc
+        dest: &dst_key_asc /etc/duplicity/{{ email }}.asc
       become: True
       name: Copy pub key
       tags: export
 
+    - command: gpg2 --list-keys '<{{ email }}>'
+      become: True
+      register: gpg
+      failed_when: gpg.rc > 2
+      <<: *ro
+      name: Check GPG key imported
+      tags: export
+
+    - command:
+      args: { argv: [ gpg2, --import, *dst_key_asc ] }
+      become: True
+      when: gpg.rc == 2
+      name: Import GPG key
+      tags: export
+
+    - command:
+      args:
+        argv: [ gpg2, --no-tty, --command-fd, 0, --edit-key, '<{{ email }}>' ]
+        stdin: "trust\n5\ny"
+      become: True
+      when: gpg.rc == 2
+      name: Trust GPG key
+      tags: export
+
+    - meta: end_play
+      tags: always
