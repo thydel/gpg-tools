@@ -15,3 +15,5 @@ private-repos.yml
 inventory/*_out.yml
 inventory/.stone
 try.jsonnet
+try.yml
+

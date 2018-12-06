@@ -273,6 +273,21 @@
       name: Export pub key
       tags: export
 
+    - set_fact:
+        src_key_priv: &src_key_priv '{{ gnupg_keysdir }}/{{ email }}.priv'
+        key_priv_pass: '{{ gnupg_user }}/{{ email }} directory={{ password_store_dir }}'
+      name: Define src_key_priv and passwordstore invocation
+
+    - expect:
+        command: gpg2 --homedir {{ gnupg_homedir }} --export-secret-keys --armor --output {{ src_key_priv }}
+        responses:
+          (?i)Passphrase: |
+            {{ lookup('passwordstore', key_priv_pass) }}
+        creates: *src_key_priv
+      no_log: True
+      <<: *lo
+      name: Export priv key
+
     - <<: *ro
       command: git -C {{ gnupg_repo }} status --porcelain
       delegate_to: localhost
