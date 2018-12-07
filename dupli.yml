@@ -271,7 +271,6 @@
         creates: *src_key_asc
       delegate_to: localhost
       name: Export pub key
-      tags: export
 
     - set_fact:
         src_key_priv: &src_key_priv '{{ gnupg_keysdir }}/{{ email }}.priv'
@@ -316,36 +315,65 @@
       when: head_upstream.results[0].stdout != head_upstream.results[1].stdout
       name: Push new key
 
+    - meta: noop
+      vars:
+        macros:
+          - &dst_key_asc /etc/duplicity/{{ email }}.asc
+          - &dst_key_priv /etc/duplicity/{{ email }}.priv
+
+    - set_fact:
+        keys:
+          - src: *src_key_asc
+            dest: *dst_key_asc
+          - src: *src_key_priv
+            dest: *dst_key_priv
+
     - copy:
-        src: *src_key_asc
-        dest: &dst_key_asc /etc/duplicity/{{ email }}.asc
+        src: '{{ item.src }}'
+        dest: '{{ item.dest }}'
+        mode: preserve
+      loop: '{{ keys }}'
       become: True
-      name: Copy pub key
-      tags: export
+      name: Copy pub and priv key
 
-    - command: gpg2 --list-keys '<{{ email }}>'
-      become: True
-      register: gpg
-      failed_when: gpg.rc > 2
-      <<: *ro
-      name: Check GPG key imported
-      tags: export
+    - meta: noop
+      vars:
+        macros:
+          - &check_key
+            command: gpg2 '{{ cmd }}' '<{{ email }}>'
+            become: True
+            register: gpg
+            failed_when: gpg.rc > 2
+            <<: *ro
+            name: Check GPG '{{ typ }}' key imported
+          - &import_key
+            command:
+            args: { argv: [ gpg2, --import, '{{ key }}' ] }
+            become: True
+            when: gpg.rc == 2
+            name: Import GPG {{ key }}
+          - &trust_key
+            command:
+            args:
+              argv: [ gpg2, --no-tty, --command-fd, 0, --edit-key, '<{{ email }}>' ]
+              stdin: "trust\n5\ny"
+            become: True
+            when: gpg.rc == 2
+            name: Trust GPG key
 
-    - command:
-      args: { argv: [ gpg2, --import, *dst_key_asc ] }
-      become: True
-      when: gpg.rc == 2
-      name: Import GPG key
-      tags: export
+    - <<: *check_key
+      vars: { cmd: --list-keys, typ: pub }
 
-    - command:
-      args:
-        argv: [ gpg2, --no-tty, --command-fd, 0, --edit-key, '<{{ email }}>' ]
-        stdin: "trust\n5\ny"
-      become: True
-      when: gpg.rc == 2
-      name: Trust GPG key
-      tags: export
+    - <<: *import_key
+      vars: { key: *dst_key_asc }
+
+    - <<: *trust_key
+
+    - <<: *check_key
+      vars: { cmd: --list-secret-keys, typ: priv }
+
+    - <<: *import_key
+      vars: { key: *dst_key_priv }
 
     - meta: end_play
       tags: always
