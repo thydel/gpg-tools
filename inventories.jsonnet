@@ -41,4 +41,4 @@ local inventories = {
 { [set + '_out.yml']: std.manifestYamlDoc(inventories[set]) for set in std.objectFields(inventories) }
 
 # Local Variables:
-# indent-tabs-mdode: nil
+# indent-tabs-mode: nil
