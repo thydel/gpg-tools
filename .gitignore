@@ -13,6 +13,7 @@ inventory/local
 private-repos.yml
 
 inventory/*_out.yml
+inventory/nodes.yml
 inventory/.stone
 try.jsonnet
 try.yml
